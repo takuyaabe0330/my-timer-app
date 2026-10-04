@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="ja" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>片手タイマー</title>
+  
+  <!-- iOS / Android 全画面表示 (PWAライク) メタタグ -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#090d16">
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Google Fonts: Inter & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            app: {
+              bg: '#090d16',
+              surface: '#131b2e',
+              surfaceBorder: '#23304c',
+              accent: '#38bdf8',
+              accentHover: '#0ea5e9',
+              danger: '#f43f5e',
+              success: '#10b981',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    /* スマホ特有のタップハイライトやテキスト選択の無効化 */
+    * {
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    /* プログレス円のアニメーション設定 */
+    #progressRingCircle {
+      transition: stroke-dashoffset 0.35s ease-out, stroke 0.3s ease;
+      transform: rotate(-90deg);
+      transform-origin: 50% 50%;
+    }
+
+    /* Safe Area の調整（iPhoneのノッチ・ホームバー対応） */
+    .safe-top {
+      padding-top: env(safe-area-inset-top, 16px);
+    }
+    .safe-bottom {
+      padding-bottom: env(safe-area-inset-bottom, 24px);
+    }
+
+    /* タイムアップ点滅アニメーション */
+    @keyframes alertPulse {
+      0%, 100% { background-color: #090d16; }
+      50% { background-color: #3b0d14; }
+    }
+    .timeup-anim {
+      animation: alertPulse 0.8s infinite;
+    }
+  </style>
+</head>
+
+<body class="h-full bg-app-bg text-slate-100 flex flex-col justify-between overflow-hidden antialiased select-none font-sans">
+
+  <header class="w-full safe-top pt-4 px-6 flex justify-between items-center text-slate-400">
+    <div class="flex items-center gap-2">
+      <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+      <span class="text-xs font-semibold tracking-wider uppercase text-slate-300">Quick Timer</span>
+    </div>
+    <button id="soundTestBtn" class="text-xs px-2.5 py-1.5 rounded-lg bg-slate-800 border border-slate-700 active:scale-95 transition text-slate-300 flex items-center gap-1.5">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"></path></svg>
+      音テスト
+    </button>
+  </header>
+
+  <main class="flex-1 flex flex-col items-center justify-center relative px-4">
+    <div class="relative w-64 h-64 sm:w-72 sm:h-72 flex items-center justify-center">
+      <!-- SVG 円形ゲージ -->
+      <svg class="w-full h-full" viewBox="0 0 240 240">
+        <!-- 背景の薄い円 -->
+        <circle
+          cx="120"
+          cy="120"
+          r="100"
+          stroke="#1e293b"
+          stroke-width="12"
+          fill="transparent"
+        />
+        <!-- 進捗を表す円 -->
+        <circle
+          id="progressRingCircle"
+          cx="120"
+          cy="120"
+          r="100"
+          stroke="#38bdf8"
+          stroke-width="12"
+          stroke-linecap="round"
+          fill="transparent"
+          stroke-dasharray="628.3"
+          stroke-dashoffset="0"
+        />
+      </svg>
+
+      <!-- 中央の数字表示エリア -->
+      <div class="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none">
+        <span id="timeDisplay" class="font-mono text-5xl sm:text-6xl font-bold tracking-tight text-white drop-shadow-md">
+          03:00
+        </span>
+        <span id="subStatus" class="text-xs uppercase tracking-widest text-slate-400 mt-2 font-medium">
+          Ready
+        </span>
+      </div>
+    </div>
+  </main>
+
+  <footer class="w-full px-5 safe-bottom pb-6 flex flex-col gap-4 max-w-md mx-auto">
+    <!-- クイック加算プリセット（親指で届く中段下） -->
+    <div class="grid grid-cols-4 gap-2">
+      <button onclick="addMinutes(1)" class="py-2.5 rounded-xl bg-app-surface border border-app-surfaceBorder text-slate-200 text-sm font-semibold active:scale-95 active:bg-slate-700 transition shadow-sm">
+        +1分
+      </button>
+      <button onclick="addMinutes(3)" class="py-2.5 rounded-xl bg-app-surface border border-app-surfaceBorder text-slate-200 text-sm font-semibold active:scale-95 active:bg-slate-700 transition shadow-sm">
+        +3分
+      </button>
+      <button onclick="addMinutes(5)" class="py-2.5 rounded-xl bg-app-surface border border-app-surfaceBorder text-slate-200 text-sm font-semibold active:scale-95 active:bg-slate-700 transition shadow-sm">
+        +5分
+      </button>
+      <button onclick="addMinutes(10)" class="py-2.5 rounded-xl bg-app-surface border border-app-surfaceBorder text-slate-200 text-sm font-semibold active:scale-95 active:bg-slate-700 transition shadow-sm">
+        +10分
+      </button>
+    </div>
+
+    <!-- メイン操作ボタン（親指が最も押しやすい最下段） -->
+    <div class="grid grid-cols-3 gap-3 pt-1">
+      <!-- リセットボタン -->
+      <button id="resetBtn" class="py-4 rounded-2xl bg-slate-800 border border-slate-700 active:scale-95 active:bg-slate-700 transition flex flex-col items-center justify-center text-slate-300 font-semibold shadow-md">
+        <svg class="w-5 h-5 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+        <span class="text-xs">リセット</span>
+      </button>
+
+      <!-- スタート / 一時停止ボタン（一番大きく押しやすい） -->
+      <button id="startPauseBtn" class="col-span-2 py-4 rounded-2xl bg-sky-500 hover:bg-sky-400 active:scale-95 transition flex items-center justify-center gap-2 text-white font-bold text-lg shadow-lg shadow-sky-500/25">
+        <svg id="startIcon" class="w-6 h-6 fill-current" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+        <svg id="pauseIcon" class="w-6 h-6 fill-current hidden" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+        <span id="startPauseText">スタート</span>
+      </button>
+    </div>
+  </footer>
+
+  <script>
+    // --- 状態管理 ---
+    const DEFAULT_SECONDS = 180; // 初期値: 3分
+    let totalTime = DEFAULT_SECONDS;
+    let remainingTime = DEFAULT_SECONDS;
+    let timerId = null;
+    let isRunning = false;
+
+    // --- DOM要素 ---
+    const display = document.getElementById('timeDisplay');
+    const subStatus = document.getElementById('subStatus');
+    const startPauseBtn = document.getElementById('startPauseBtn');
+    const startIcon = document.getElementById('startIcon');
+    const pauseIcon = document.getElementById('pauseIcon');
+    const startPauseText = document.getElementById('startPauseText');
+    const resetBtn = document.getElementById('resetBtn');
+    const progressCircle = document.getElementById('progressRingCircle');
+    const soundTestBtn = document.getElementById('soundTestBtn');
+
+    // SVG円周長: 2 * π * r (r=100) ≈ 628.318
+    const CIRCUMFERENCE = 2 * Math.PI * 100;
+    progressCircle.style.strokeDasharray = `${CIRCUMFERENCE}`;
+
+    // --- Web Audio API (外部mp3不要のアラーム音生成) ---
+    let audioCtx = null;
+    function getAudioContext() {
+      if (!audioCtx) {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        audioCtx = new AudioContextClass();
+      }
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+      return audioCtx;
+    }
+
+    function playBeep(frequency = 880, duration = 0.15, type = 'sine') {
+      try {
+        const ctx = getAudioContext();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        osc.type = type;
+        osc.frequency.setValueAtTime(frequency, ctx.currentTime);
+
+        // フェードアウトさせて耳障りなクリックノイズを防止
+        gain.gain.setValueAtTime(0.3, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + duration);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.start();
+        osc.stop(ctx.currentTime + duration);
+      } catch (e) {
+        console.error("Audio playback error:", e);
+      }
+    }
+
+    // 完了時のメロディックアラーム
+    function playAlarmSound() {
+      const notes = [587.33, 739.99, 880.00, 1174.66]; // D5, F#5, A5, D6
+      notes.forEach((freq, index) => {
+        setTimeout(() => {
+          playBeep(freq, 0.22, 'triangle');
+        }, index * 160);
+      });
+    }
+
+    // スマホのバイブレーション (対応端末のみ)
+    function triggerVibration() {
+      if ("vibrate" in navigator) {
+        navigator.vibrate([200, 100, 200, 100, 400]);
+      }
+    }
+
+    function formatTime(seconds) {
+      const mins = Math.floor(seconds / 60);
+      const secs = seconds % 60;
+      return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    }
+
+    function updateDisplay() {
+      display.textContent = formatTime(remainingTime);
+
+      // プログレスバーの進捗計算
+      const ratio = totalTime > 0 ? (remainingTime / totalTime) : 0;
+      const offset = CIRCUMFERENCE * (1 - ratio);
+      progressCircle.style.strokeDashoffset = offset;
+
+      // 残り時間によるリング色の変化
+      if (remainingTime <= 10 && remainingTime > 0) {
+        progressCircle.setAttribute('stroke', '#f43f5e'); // 赤（ピンチ）
+      } else if (remainingTime <= 30 && remainingTime > 0) {
+        progressCircle.setAttribute('stroke', '#fbbf24'); // 黄色（警告）
+      } else {
+        progressCircle.setAttribute('stroke', '#38bdf8'); // 通常ブルー
+      }
+    }
+
+    function startTimer() {
+      if (remainingTime <= 0) return;
+
+      // ユーザー操作契機でオーディオコンテキストをアクティブ化
+      getAudioContext();
+
+      isRunning = true;
+      subStatus.textContent = "計測中...";
+      startPauseText.textContent = "ストップ";
+      startIcon.classList.add('hidden');
+      pauseIcon.classList.remove('hidden');
+      startPauseBtn.className = startPauseBtn.className.replace('bg-sky-500', 'bg-amber-600').replace('hover:bg-sky-400', 'hover:bg-amber-500');
+
+      document.body.classList.remove('timeup-anim');
+
+      const startTime = Date.now();
+      const initialRemaining = remainingTime;
+
+      // 画面バックグラウンドやミリ秒ズレに対応するため基準時刻で計算
+      timerId = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - startTime) / 1000);
+        remainingTime = initialRemaining - elapsed;
+
+        if (remainingTime <= 0) {
+          remainingTime = 0;
+          updateDisplay();
+          timerComplete();
+        } else {
+          updateDisplay();
+        }
+      }, 250);
+    }
+
+    function pauseTimer() {
+      isRunning = false;
+      clearInterval(timerId);
+      subStatus.textContent = "一時停止中";
+      startPauseText.textContent = "再開";
+      pauseIcon.classList.add('hidden');
+      startIcon.classList.remove('hidden');
+      startPauseBtn.className = startPauseBtn.className.replace('bg-amber-600', 'bg-sky-500').replace('hover:bg-amber-500', 'hover:bg-sky-400');
+    }
+
+    function resetTimer() {
+      clearInterval(timerId);
+      isRunning = false;
+      remainingTime = totalTime;
+      subStatus.textContent = "Ready";
+      startPauseText.textContent = "スタート";
+      pauseIcon.classList.add('hidden');
+      startIcon.classList.remove('hidden');
+      startPauseBtn.className = startPauseBtn.className.replace('bg-amber-600', 'bg-sky-500').replace('hover:bg-amber-500', 'hover:bg-sky-400');
+      document.body.classList.remove('timeup-anim');
+      updateDisplay();
+    }
+
+    function timerComplete() {
+      clearInterval(timerId);
+      isRunning = false;
+      subStatus.textContent = "TIME UP!";
+      startPauseText.textContent = "スタート";
+      pauseIcon.classList.add('hidden');
+      startIcon.classList.remove('hidden');
+      startPauseBtn.className = startPauseBtn.className.replace('bg-amber-600', 'bg-sky-500').replace('hover:bg-amber-500', 'hover:bg-sky-400');
+
+      // 視覚・音・振動による通知
+      document.body.classList.add('timeup-anim');
+      playAlarmSound();
+      triggerVibration();
+    }
+
+    // 分加算プリセット
+    window.addMinutes = function(mins) {
+      const addedSec = mins * 60;
+      if (!isRunning) {
+        totalTime += addedSec;
+        remainingTime += addedSec;
+      } else {
+        totalTime += addedSec;
+        remainingTime += addedSec;
+      }
+      playBeep(440, 0.08, 'sine'); // 軽いタップ音
+      updateDisplay();
+    };
+
+    startPauseBtn.addEventListener('click', () => {
+      if (isRunning) {
+        pauseTimer();
+      } else {
+        if (remainingTime === 0) {
+          remainingTime = totalTime || DEFAULT_SECONDS;
+        }
+        startTimer();
+      }
+    });
+
+    resetBtn.addEventListener('click', () => {
+      playBeep(330, 0.08, 'sine');
+      resetTimer();
+    });
+
+    soundTestBtn.addEventListener('click', () => {
+      playAlarmSound();
+      triggerVibration();
+    });
+
+    // 初期描画
+    updateDisplay();
+  </script>
+</body>
+</html>
